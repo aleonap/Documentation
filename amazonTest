@@ -1,0 +1,143 @@
+import org.openqa.selenium.By;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.Dimension;
+import org.openqa.selenium.WebElement;
+import org.openqa.selenium.support.ui.ExpectedConditions;
+import org.openqa.selenium.support.ui.WebDriverWait;
+
+import static org.testng.Assert.assertEquals;
+
+import java.util.*;
+import io.github.bonigarcia.wdm.WebDriverManager;
+
+import org.testng.annotations.AfterTest;
+import org.testng.annotations.BeforeSuite;
+import org.testng.annotations.BeforeTest;
+import org.testng.annotations.Test;
+
+public class amazonTest {
+	  private WebDriver driver;
+	  private Map<String, Object> vars;
+	  @BeforeSuite
+	  
+	    static void setupClass() {
+	        WebDriverManager.chromedriver().setup();
+	    }
+	  public WebElement waitForElementToBeVisible(WebDriver driver, String locator){
+	        @SuppressWarnings("deprecation")
+			WebDriverWait wait = new WebDriverWait(driver, 60);
+	        WebElement element = wait.until(
+	                ExpectedConditions.visibilityOfElementLocated(By.xpath(locator)));
+	        return element;
+	    }
+	  @BeforeTest
+	 
+	  public void setUp() {
+	    driver = new ChromeDriver();
+	    vars = new HashMap<String, Object>();
+	  }
+	  @AfterTest
+	  public void tearDown() {
+	    driver.quit();
+	  }
+	  @Test
+	  public void selectitem() {
+	    driver.get("https://www.amazon.com/");
+	    driver.manage().window().setSize(new Dimension(1800, 1020));
+	    driver.findElement(By.id("twotabsearchtextbox")).click();
+	    driver.findElement(By.id("twotabsearchtextbox")).sendKeys("magnifying glass");
+	    driver.findElement(By.id("searchDropdownBox")).click();
+	    {
+	      WebElement dropdown = driver.findElement(By.id("searchDropdownBox"));
+	      dropdown.findElement(By.xpath("//option[. = 'Industrial & Scientific']")).click();
+	    }
+	
+	    driver.findElement(By.id("nav-search-submit-button")).click();
+	    List<WebElement> checkboxes = driver.findElements(By.className("a-icon-checkbox"));
+	    checkboxes.get(0).click();
+	   
+        this.waitForElementToBeVisible(driver, ".//*[@id=\"search\"]/div[1]/div[1]/div/span[3]/div[2]");
+	   
+        
+       	List<WebElement> prime = driver.findElements(By.className("s-image-logo-view"));
+       	String t = driver.findElement(By.xpath("//*[@id=\"search\"]/span/div/span/h1/div/div[1]/div/div/span[1]")).getText().split(" ")[0];
+       	System.out.println(t.split("-")[1]);
+       	System.out.println(prime.size());
+       	assertEquals(true,(Integer.parseInt(t.split("-")[1]) > 10 ));
+      	assertEquals((true) ,(Integer.parseInt(t.split("-")[1]) <= prime.size()));
+        List<WebElement> resultsList = driver.findElements(By.xpath(".//*[@id=\"search\"]/div[1]/div[1]/div/span[3]/div[2]/*"));
+      	for(int x=0;x < resultsList.size();x++) {
+      		System.out.println(resultsList.get(x).getText());
+      		if (resultsList.get(x).getText().contains("Large Magnifying Glass 10X Handheld Reading Magnifier for Seniors & Kids - 100MM 4INCHES")) {
+      			resultsList.get(x).click();
+      			break;
+      		}
+      	}
+	    driver.findElement(By.id("a-autoid-0-announce")).click();
+	    this.waitForElementToBeVisible(driver, "//*[@id=\"a-popover-4\"]/div/div/ul");
+	    driver.findElement(By.id("quantity_6")).click();
+	    driver.findElement(By.id("add-to-cart-button")).click();
+	    this.waitForElementToBeVisible(driver, "//*[@id=\"sw-atc-details-single-container\"]/div[2]/div/span");
+		System.out.println(driver.findElement(By.xpath("//*[@id=\"sw-atc-details-single-container\"]/div[2]/div/span")).getText());
+		assertEquals("Added to Cart",driver.findElement(By.xpath("//*[@id=\"sw-atc-details-single-container\"]/div[2]/div/span")).getText());
+	    driver.findElement(By.partialLinkText("Go to Cart")).click();
+	    this.waitForElementToBeVisible(driver, "//*[@id=\"quantity\"]");
+	    assertEquals("7",driver.findElement(By.xpath("//*[@id=\"quantity\"]")).getAttribute("value"));
+	    driver.findElement(By.xpath("//*[contains(@id,\"comparison-lite-modal\")]/input")).click();
+	    this.waitForElementToBeVisible(driver, "//*[@id=\"a-popover-content-2\"]/h1");
+	    assertEquals("Compare with similar items",driver.findElement(By.xpath("//*[@id=\"a-popover-content-2\"]/h1")).getText());
+	    this.waitForElementToBeVisible(driver, "//div[@id='a-popover-2']/div/button");
+	    driver.findElement(By.xpath("//div[@id='a-popover-2']/div/button")).click();
+	  }
+	  @Test
+	  public void selectitemFail() {
+	    driver.get("https://www.amazon.com/");
+	    driver.manage().window().setSize(new Dimension(1800, 1020));
+	    driver.findElement(By.id("twotabsearchtextbox")).click();
+	    driver.findElement(By.id("twotabsearchtextbox")).sendKeys("magnifying glass");
+	    driver.findElement(By.id("searchDropdownBox")).click();
+	    {
+	      WebElement dropdown = driver.findElement(By.id("searchDropdownBox"));
+	      dropdown.findElement(By.xpath("//option[. = 'Industrial & Scientific']")).click();
+	    }
+	
+	    driver.findElement(By.id("nav-search-submit-button")).click();
+	    List<WebElement> checkboxes = driver.findElements(By.className("a-icon-checkbox"));
+	    checkboxes.get(0).click();
+	   
+        this.waitForElementToBeVisible(driver, ".//*[@id=\"search\"]/div[1]/div[1]/div/span[3]/div[2]");
+	   
+        
+       	List<WebElement> prime = driver.findElements(By.className("s-image-logo-view"));
+       	String t = driver.findElement(By.xpath("//*[@id=\"search\"]/span/div/span/h1/div/div[1]/div/div/span[1]")).getText().split(" ")[0];
+       	System.out.println(t.split("-")[1]);
+       	System.out.println(prime.size());
+       	assertEquals(true,(Integer.parseInt(t.split("-")[1]) > 10 ));
+      	assertEquals((true) ,(Integer.parseInt(t.split("-")[1]) <= prime.size()));
+      	List<WebElement> resultsList = driver.findElements(By.xpath(".//*[@id=\"search\"]/div[1]/div[1]/div/span[3]/div[2]/*"));
+      	for(int x=0;x < resultsList.size();x++) {
+      		System.out.println(resultsList.get(x).getText());
+      		if (resultsList.get(x).getText().contains("Large Magnifying Glass 10X Handheld Reading Magnifier for Seniors & Kids - 100MM 4INCHES")) {
+      			resultsList.get(x).click();
+      			break;
+      		}
+      	}
+        
+	    driver.findElement(By.id("a-autoid-0-announce")).click();
+	    this.waitForElementToBeVisible(driver, "//*[@id=\"a-popover-4\"]/div/div/ul");
+	    driver.findElement(By.id("quantity_100")).click();
+	    driver.findElement(By.id("add-to-cart-button")).click();
+	    this.waitForElementToBeVisible(driver, "//*[@id=\"sw-atc-details-single-container\"]/div[2]/div/span");
+		System.out.println(driver.findElement(By.xpath("//*[@id=\"sw-atc-details-single-container\"]/div[2]/div/span")).getText());
+		assertEquals("Added to Cart",driver.findElement(By.xpath("//*[@id=\"sw-atc-details-single-container\"]/div[2]/div/span")).getText());
+	    driver.findElement(By.partialLinkText("Go to Cart")).click();
+	    this.waitForElementToBeVisible(driver, "//*[@id=\"quantity\"]");
+	    assertEquals("7",driver.findElement(By.xpath("//*[@id=\"quantity\"]")).getAttribute("value"));
+	    driver.findElement(By.xpath("//*[contains(@id,\"comparison-lite-modal\")]/input")).click();
+	    this.waitForElementToBeVisible(driver, "//*[@id=\"a-popover-content-2\"]/h1");
+	    assertEquals("Compare with similar items",driver.findElement(By.xpath("//*[@id=\"a-popover-content-2\"]/h1")).getText());
+	    this.waitForElementToBeVisible(driver, "//div[@id='a-popover-2']/div/button");
+	    driver.findElement(By.xpath("//div[@id='a-popover-2']/div/button")).click();
+	  }
+	}
