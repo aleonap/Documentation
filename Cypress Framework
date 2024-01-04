@@ -1,0 +1,532 @@
+.github/workflows - - > testing.yml
+
+name: "Company" Cypress
+on:
+  pull_request: 
+    branches: [ main ]
+
+jobs:
+  cypress-run:
+    name: Cypress Test
+    runs-on: ubuntu-18.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Cypress run
+        uses: cypress-io/github-action@v4
+        with:
+          browser: chrome
+        spec: |
+          cypress/e2e/api*.js
+------------------------------------------------------------------------------------------------------------------------------------------------
+.vscode - - > launch.json
+
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "pwa-chrome",
+            "request": "launch",
+            "name": "Launch Chrome against localhost",
+            "url": "http://localhost:8080",
+            "webRoot": "${workspaceFolder}"
+        }
+    ]
+}
+-------------------------------------------------------------------------------------------------------------------------------------------------
+cypress
+
+api_accounts.cy.js
+
+describe('Accounts API tests', () => {
+
+    let userId
+    let accountId
+    let currentTime
+    let accountCreatedAt
+    let createAccountResponse
+
+
+    before(() => {
+        cy.getUserId().then((id) => {
+            userId = id
+        })
+    })
+
+    beforeEach(() => {
+        // get current time
+        currentTime = new Date()
+
+        // create account
+        cy.createAccount().then((resp) => {
+            createAccountResponse = resp.body.data
+            accountId = resp.body.data.id
+            cy.log(`Setup: Created Account:  ${accountId}`)
+            accountCreatedAt = new Date(resp.body.data.created_at)
+        })
+    })
+
+    afterEach(() => {const test = Cypress.mocha.getRunner().suite.ctx.currentTest.title
+        cy.skipOn( test === 'Test Delete Account')
+        cy.log(`Clean up: Deleting Account ${accountId}`)
+        cy.deleteAccount(accountId)
+    })
+
+    it('Test Create Account', () => {
+
+        // get account creator ID from response body
+        let creatorId = createAccountResponse.creator.id
+
+        cy.log('Verify test user is the account creator')
+        expect(creatorId).to.eq(userId, 'User is the account creator')
+
+        cy.log('Verify the account was just created')
+        expect(Math.abs(accountCreatedAt - currentTime)/1000).to.be.lessThan(1,
+            'Account was created within 1 second of the start of test')
+    })
+
+    it('Test Update Account', () => {
+        let description = 'API updated description'
+        let accountName = createAccountResponse.name
+        let accountDomain = createAccountResponse.domain
+
+        cy.log('Update account with description')
+        let updateBody = {'name': accountName, 'domain': accountDomain, 'description': description}
+        let updatedTime = new Date()
+        cy.updateAccount(accountId, updateBody).then((resp) => {
+
+            cy.log('Verify account was updated')
+            expect(resp.body.data.description).to.eq(description, 'Account was updated with new description')
+
+            cy.log('Verify updated_at timestamp is correct')
+            let updatedAt = new Date(resp.body.data.updated_at)
+            expect(Math.abs(updatedAt - updatedTime)/1000).to.be.lessThan(1, 'Account was just updated')
+        })
+    })
+
+    it('Test Delete Account', () => {
+        cy.log('Delete account')
+        cy.deleteAccount(accountId).then((resp) => {
+            expect(resp.status).to.eq(204, 'Request returned 204 status')
+        })
+
+        cy.log('Verify account is deleted')
+        cy.getDeletedAccount(accountId).then((resp) => {
+            expect(resp.status).to.eq(404, 'Request returned 404 status')
+            expect(resp.body.error).to.eq('Not found', 'Account was deleted and not found.')
+        })
+    })
+
+})
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+workflow
+import { CadenceOverviewPage } from "../../../../pages/cadence/cadenceOverviewPage";
+import { EmailModal } from "../../../../pages/email/emailModal";
+import { SideNavigationPage } from "../../../../pages/sideNavigationPage";
+import { InsertTemplateModal } from "../../../../pages/template/insertTemplateModal";
+import { faker } from '@faker-js/faker';
+import { CadenceListPage } from "../../../../pages/cadence/cadenceListPage";
+
+const cadenceOverview     = new CadenceOverviewPage()
+const emailModal          = new EmailModal()
+const templateModal       = new InsertTemplateModal()
+const cadenceListPage     = new CadenceListPage()
+const sideNav             = new SideNavigationPage()
+
+describe('Cadence Workflow - Templates', () => {
+    let firstName        = faker.name.firstName()
+    let lastName         = faker.name.lastName()
+    let email            = `${firstName}.${lastName}@mailinator.com`
+    let cadenceId        = null
+    let personId         = null
+    let templateId       = null
+    let randomCharacters = faker.random.alphaNumeric(6)
+    let templateSubject  = `Automation Email Template ${randomCharacters}`
+    let templateTitle    = null
+    let cadenceName      = `Automation Team Cadence ${randomCharacters}`
+    
+    beforeEach(() => {
+        cy.importEmptyTeamCadence(cadenceName).then((resp) => {
+            cadenceId = resp.body.data.cadence.id
+        })
+    })
+
+    afterEach(() => {
+        cy.log(`Clean up: Deleting Cadence ${cadenceId}`)
+        cy.deleteCadence(cadenceId)
+    })
+
+    it('Cadence Workflow Insert Personal Template', () => { 
+        
+        cy.log('Login to App')
+        cy.login(Cypress.env(Cypress.env('loc')).testUser.email, Cypress.env(Cypress.env('loc')).testUser.password)
+
+        cy.log('Add Email Only Step to Cadence.')
+        cy.addEmailCadenceStep(cadenceId, 1)
+
+        cy.log('Create a Person.')
+        cy.createPerson(firstName, lastName, email).then((resp) => {
+            personId = resp.body.data.id
+
+            cy.log('Create a Personal Template.')
+            cy.createPersonalTemplate(templateSubject).then((resp) => {
+                cy.log(resp.body.id)
+                templateId = resp.body.id
+                templateTitle = resp.body.title
+                cy.log(`Template ID is: ${templateId}`)
+                cy.log(`Template Name is: ${templateTitle}`)
+                cy.log(`Template Subject is: ${templateSubject}`)
+
+                cy.log('Add Person to Cadence.')
+                cy.addPersonCadence(cadenceId, personId)
+
+                cy.log('Click Cadences on Side Nav.')
+                sideNav.clickCadences()
+
+                cy.log('Click the Team Cadences tab.')
+                cadenceListPage.clickTeamCadencesTab()
+
+                cy.log('Click on the Cadence in the Personal Cadence List.')
+                cadenceListPage.getTeamCadence(cadenceName)
+                console.log(`This is the Cadence Name: ${cadenceName}`)
+                
+                cy.log('Click Due button for Cadence Email Step.')
+                cadenceOverview.getStepDueButton(1).click()
+
+                cy.log('Click the Insert button in the Email Cadence modal.')
+                emailModal.getInsertButton()
+
+                cy.log('Click the Templates button in the Insert menu.')
+                emailModal.getTemplatesButton()
+
+                cy.log('Search for the Template Name.')
+                templateModal.searchForPersonalTemplate(templateSubject)
+
+                cy.log('Select the Personal Snippet to insert in the Email Compose pane.')
+                templateModal.getPersonalTemplate()
+
+                cy.log('Click the Insert button in the Insert Template modal.')
+                templateModal.getInsertButton()
+
+                cy.log('Verify Email Template was inserted.')
+                emailModal.getPersonalTemplateText(templateSubject)
+
+                cy.log(`Clean up: Deleting Personal Template with Id: ${templateId}`)   
+                cy.deletePersonalTemplate(templateId).then((resp) => {
+                    expect(resp.status).to.eq(204, 'Request status returned 204')
+                })
+
+                cy.log('Verify Personal Template was deleted.')
+                cy.fetchDeletedPersonalTemplate(templateId).then((resp) => {
+                    expect(resp.status).to.eq(404, `Personal Template with Id: ${templateId} was deleted successfully.`)
+                })
+
+                cy.log(`Clean up: Deleting Person with Id: ${personId}`)
+                cy.deletePerson(personId).then((resp) => {
+                    expect(resp.status).to.eq(204, 'Request status returned 204')
+                })
+
+                cy.log('Verify Person was deleted.')
+                cy.fetchDeletedPerson(personId).then((resp) => {
+                    expect(resp.status).to.eq(404, `Person with Id: ${personId} was deleted successfully.`)
+                })
+            })
+       })
+    })
+})
+---------------------------------------------------------------------------------------------------------------------------------------------------
+README.md
+# cypress-poc
+Cypress POC framework
+
+## Prerequisites 
+- Node
+- NPM
+- Install node modules:
+`npm install`
+
+## Cypress Installation Docs
+https://docs.cypress.io/guides/getting-started/installing-cypress
+
+## Helpful Visual Studio Code Extensions
+https://docs.cypress.io/guides/tooling/IDE-integration#File-Opener-Preference
+
+## Running Cypress tests locally
+- Run 
+`npm run cypress`
+- Open Cypress app
+- Select the `.cy.js` file for the tests you want to run
+- Sit back, and watch the tests run
+
+## Running tests locally via CLI
+- Run `npm run test`
+- An HTML report will be generated in `cypress/reports/index.html`. Open file in a browser to view the run results
+- Videos for each test will be stored in 'cypress/videos'
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+cypress.env.json
+{
+  "qa8":{
+    "baseUrl": "https://accounts8.qasalesloft.com",
+    "apiUri": "https://api8.qasalesloft.com/v2",
+    "tokenUri":"https://accounts8.qasalesloft.com/tokens",
+    "melodyTokenUri":"https://melody.us1-qa8.qasalesloft.com/api/tokens.json",
+    "melodyApiUri":"https://melody.us1-qa8.qasalesloft.com/api",
+    "meEndpoint": "/me.json",
+    "testUser": {
+        "apiToken": "v2_ak_100040_0f4919a1273bdc0f4636274b79aaea7139aa007f4d9e7b7fa7a41eaa745da9b2",
+        "email": "qa+qa8automation@qasalesloft.com",
+        "internalApiToken": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6Im1lbG9keToyIn0.eyJpc3MiOiJtZWxvZHkiLCJzdWIiOiI4NTc4MmEwZi00NmU1LTQ5NTktOWRjNC0yNjQzZDhjYWYwZGYiLCJ0aWQiOjEwMDA0MCwicGVybXMiOltdLCJzY29wZXMiOlsiZW1haWxfY29udGVudHMiLCJpbnRlcm5hbCIsImF0dGFjaG1lbnRzOmNyZWF0ZSIsImVtYWlsczpjcmVhdGUiXSwicmVnIjoidXMxIiwiZXhwIjoxNjUzNDI0NjcwfQ.m9sP2TtpJptB92ibJv4-7wgFuGYEtgRArcqAi95HOExqatWLs_ilBFRjAwKKriqrwapcwsLKZXGWRoZNodhgqGuzydc8LonagtsCB-aqF2yVS2Oj9DRjBuCThnWXlQ03NuLf9RsEzsi_9ZN9Q6BFBhcMmILp5pf-puIOWBqgOk9F_vAquoH4RtmXsasFJIO3wE9KgG0p1D4rChqN2-CWgMZdNNQXVh7A-8f7H4jn_Be6o1auns1hQgzKWmQhswVL9455VdF5V1iRvYJYR4HFIif_9MWn_3EJrDoSmWLVodrYz3nthimhmjXv7hVPMdyWRKlrUxElpZS6PgYs7adSTU_MTjoRvvT2LfJx209mLnEwFyeP48c8R6F6-3H-3Yh5IqncscmcBVFg1ayTMNjHNL3uN3TClmpj_eKhRvZ6kLZBZUOCcYveh7qLq6bNvx_MhoXVCiXNxReqA3o4XD9GrDvZEjcPQBNFEBkURGTIhCpirKXtQJZXQooE6rbBBQPbZ5W1xxXL7hqO9WSck6bohePOV5MfQdnlqz2unLUp_kJbqXfGfEujKgI0YmgeHu4adKN1LvtYwiypsfP7fxEclMBNGl7AcWqGdJViQ6E_lesU1MAhdQ2wViSwgUnDZzpv7LtWjYJbJZrK4rxn5W2OuFrT04CmhGdue6LIYDwTwXY",
+        "password": "Be8gEuh6z6ks2V@j--kPv-BEd",
+        "cookies": "ajs_user_id=%2285782a0f-46e5-4959-9dc4-2643d8caf0df%22; ajs_anonymous_id=%221daee434-f012-4236-9488-36b402fa6e82%22; ajs_group_id=%22CD100040%22; _melody_session=a3d0c246d87e02bdec77a26894857b69; SSO_SESSION_ID=100040_bd95bddcafc4ad3131df8e0a7ae4ed6142b54384; MELODY-XSRF-TOKEN-us1=bmB0F3Yt6i9hVXX%2FzrOhAysLNCmTOD%2ByRApAGLsdtcM04auvWFNvKZwOk2Iw8lUVTrN4rUC7WLIYUxNYC0BthQ%3D%3D; __profilin=p%3Dt%2Ca%3D4d0964f871477107748a8446735f658b%7C9c0f57abe285b7cfee287cbd35dff0a3",
+        "xsrfToken": "bmB0F3Yt6i9hVXX/zrOhAysLNCmTOD+yRApAGLsdtcM04auvWFNvKZwOk2Iw8lUVTrN4rUC7WLIYUxNYC0BthQ=="
+      }
+  },
+  "sdet1":{
+    "baseUrl": "https://accounts-sdet1.qasalesloft.com",
+    "apiUri": "https://api-sdet1.qasalesloft.com/v2",
+    "tokenUri":"https://accounts-sdet1.qasalesloft.com/tokens",
+    "melodyTokenUri":"https://melody.us1-sdet1.qasalesloft.com/api/tokens.json",
+    "melodyApiUri":"https://melody.us1-sdet1.qasalesloft.com/api",
+    "meEndpoint": "/me.json",
+    "testUser": {
+        "apiToken": "v2_ak_100031_73fc372285ba7bf3287dfe73858abe72d5a379140ed908b9d548722ab6acfda4",
+        "internalApiToken": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6Im1lbG9keToyIn0.eyJpc3MiOiJtZWxvZHkiLCJzdWIiOiI2YTdjMTVlMi1kNzZjLTQ0MGItYjEwYy0xY2I5MjIzOGIyMTMiLCJ0aWQiOjEwMDAzMSwicGVybXMiOltdLCJzY29wZXMiOlsiZW1haWxfY29udGVudHMiLCJpbnRlcm5hbCIsImF0dGFjaG1lbnRzOmNyZWF0ZSIsImVtYWlsczpjcmVhdGUiXSwicmVnIjoidXMxIiwiZXhwIjoxNjYwMTY4MDk5fQ.PRtjbqBlC895SK0kct9zxzvsAPmfIfYtI1ueWhdn61xG6fnJ_VLMS3dE5ImZ9prMUSIyykFjGm7ePGtpaX3Rfr6YbconvgZZPcGsD-cJs1qWSAQM6chO99nHinHKNQ-6_jG-GFLrE-ez9XHkOPhoz_aBJVt9U85A0_S1SSUYp4LwzYUFO96J2UEm08idgldGPVa0V26d2kJnj-4GFDvfM2TK0ETE3Sgt1-jVu_6bFy1xNR71AShq-JzZrgslJgrRg3ch6z5o3VmwkBSDwNkYxeSw2j5_CB0NLAR6M6kNOe-Usa0GJg7SQJX02Pm-k2jE7czfdIUQIY-mb3dqVjWdEy5UmhugZ5YqOU0trG-xhKYw-F7OlD5BHp5lVSOvidMI1zrar--_qBsH4DIdja3xjq0eMIgaX7VOQL4h01xl8EBTJ4kVtyF3D0wma01kwDqd_OEGIviKnP1lW_MbKw1rn7boYBW1H8_E25SjD82o3iOJeiz8YFE4QrpyKxcnmF3MdR02_664QZ6VhFOtYdLSNL3MIMNoXJor40T956RuGsEjZjxR22xkMd7uyz0q6mX3BX92nB4kWu0ssqjak-vTL1fQjdtsry2djdtScgxazMvjvBksP_168TjtHE2sR6VcvWhDdjoK_URO11UL6VaA-7Tu1FIUpxBO1xdeK1lCTI8",
+        "email": "qa@qasalesloft.com",
+        "password": "G7W@NhAVpEm6iXH6hbw-3w7Y",
+        "cookies": "ajs_group_id=CD100030; SSO_SESSION_ID=100031_abbf9bfa163c2513827f9acc8d6524b739ab2640; ajs_user_id=8a77d810-fe7f-4d51-ac61-bd04510cff09; ajs_anonymous_id=0b7309cb-9885-432d-8846-6cf3f63d2a26; MELODY-XSRF-TOKEN-us1=03fmxtIGmQrNM8FSIzYoFOFaiFFVfyiRI%2FfX%2FtRsWwl7iMzvpc5vnnHCYck%2FO41kjLdi5fCnDm2twpvjK99phA%3D%3D; __profilin=p%3Dt%2Ca%3D075a69f9bece097e7e75a6eb7317a73a%7C7d7ed0a05298a1d8c5dc2632fe61b555",
+        "xsrfToken": "03fmxtIGmQrNM8FSIzYoFOFaiFFVfyiRI/fX/tRsWwl7iMzvpc5vnnHCYck/O41kjLdi5fCnDm2twpvjK99phA=="
+    },
+  "sdet1user1": {
+        "apiToken": "v2_ak_100031_ceb0e25295eb59f2e31cc6f18b60a4fd90fea5c8d3c09889f9645f027093da97",
+        "internalApiToken": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6Im1lbG9keToyIn0.eyJpc3MiOiJtZWxvZHkiLCJzdWIiOiI4NGUzMzMxOS0zNWI2LTQ4ZmEtOWZhNS1lMmRkMWM1OWJlOTMiLCJ0aWQiOjEwMDAzMSwicGVybXMiOltdLCJzY29wZXMiOlsiZW1haWxfY29udGVudHMiLCJpbnRlcm5hbCIsImF0dGFjaG1lbnRzOmNyZWF0ZSIsImVtYWlsczpjcmVhdGUiXSwicmVnIjoidXMxIiwiZXhwIjoxNjYwMTY2MDAwfQ.fs5JlDbBDDp3wd_wMYRcSkeONmFtEyTOMsmEy1BAXVMzJ4xfesrHSb19EYe1VEdoQvMuzBNvIBLeAKJLwvOiY-kyktv9hRMRticmBUaJuJlYowgBTalIMoGWySw9uoui_8LP_reb40GC5QmunpnlpZyLE9nYToHmmBwxnusralOqlYXMmL8fOdj-GL-OCKw6-OH3x2MBtEuqRXIGTn2KjJpPh3LhDTIzUYEuqmwzayEGFiYKh17gaFp8j6kv32eL3RqzWJFVKViwaKNITJDgH_3yQXpc7gcxzhNwvIjr59OiulyY7KyLAzYnImcqAQpIaY0tbpHTka6ncCdhzEsJ-5X88WoJ6DGqoHQZRGElAUmzHKJG357cCK8bs4Rm8dxXieKsZwe1BgPQko_K89o9RTJd6v8zXl5HULWE7ZaXhWS_Huix1KKqyZBqIaAB_9xo3rIFLxVF7jxn3ghCw_tttU6EGEifiM5EJKkWqg1C511fiSQ3z--FMNYv0jwia3Hw-qaCl9KeMswCMQlWQpnZdKZY9EC1DpW02ygRtmZSjADiFY8K2bzieunocCgB9q-eG3G74FR-pfEOL6Sz2sghZEsTLiHZRHk4t3Lsnh55KZ4BQxUp3hEUV0O20ra7ioiGNiK1OadMMhvEqTrAuvz9OcHu-Q0aS4-umLAS9AU63J0",
+        "email": "qa+1@qasalesloft.com",
+        "password": "VDeYc4PFagTngwa*M.g!oDdJ",
+        "cookies": "ajs_group_id=CD100030; ajs_user_id=8a77d810-fe7f-4d51-ac61-bd04510cff09; ajs_anonymous_id=0b7309cb-9885-432d-8846-6cf3f63d2a26; _melody_session=dd73baafc83f08d0ca94722e04815ec5; SSO_SESSION_ID=100031_ebd09a176280bd3555b29f2dd58b492974b42b56; MELODY-XSRF-TOKEN-us1=Nhg7li9npkVSLE4UKryUMzQ4HGw0l%2FVnpSQayBxa1%2BkbwCInXrqC1k0FyNiveVsfH2xxTcu9mR7irTOr0KGhzQ%3D%3D; __profilin=p%3Dt%2Ca%3D0ca94815b0d7bede71d39bbcef1a8f63%7Cff623615f0f63160df7d804e495b73d4",
+        "xsrfToken": "Nhg7li9npkVSLE4UKryUMzQ4HGw0l/VnpSQayBxa1+kbwCInXrqC1k0FyNiveVsfH2xxTcu9mR7irTOr0KGhzQ=="
+  },
+  "sdet1user2": {
+        "apiToken": "v2_ak_100031_bca4cb40b5bfbebea5b00cd05c136f9b3e6a56ef68ce5f9299e3b32b4449b5e7",
+        "internalApiToken": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6Im1lbG9keToyIn0.eyJpc3MiOiJtZWxvZHkiLCJzdWIiOiI4YTc3ZDgxMC1mZTdmLTRkNTEtYWM2MS1iZDA0NTEwY2ZmMDkiLCJ0aWQiOjEwMDAzMSwicGVybXMiOltdLCJzY29wZXMiOlsiZW1haWxfY29udGVudHMiLCJpbnRlcm5hbCIsImF0dGFjaG1lbnRzOmNyZWF0ZSIsImVtYWlsczpjcmVhdGUiXSwicmVnIjoidXMxIiwiZXhwIjoxNjYwMTY2MTg5fQ.aHj4RNVKllzwb2_914YX8rEXLYyOBusFbgz1wsvwvKhIqaQOtTDgbdHT5eKf-7so8US5dlMB8Cpolnt105aetm2cLvmMJftsojJCbrWM5SOL4J8CPiNlJoDfAeXYWWZdVB7KKtTUHwtcp4Cx2lZwXZVHHGxQjKW6G1AUU0EtRiVZ1zMi-M4NILdVJniol-bDM5bic9cpIJjnwbx2j6D-yc_r23KJA3yuxF4cry-s3raw70JBaCgOP4YwY8h8jXM4ib8G5gPuG6UfJeUmBYzTysOUTWWKUh8dzCwUxBWZU0NmheY7OS4c-o4ZFztAB-LiXQUggc5ZGjs7_-MVEOqQo_0IHKnqPuHKOFc6_CQy3ojvIB9mKMvWWotEKWVcGSXzELSkqNWSdHBhSeDgqLl8LPSn_veZi6-Zga2TMw6RA0yY2p3S-AD1GKipq42v32FvK05Bdk3VbZXhwN5TZpdfvss11Ote-vqYWcX_wf_tJtdUyt7aVjI1F6zQQ5HJGo1EZOFe0lBBuFmGe2NEnPLJEXRwpJ5GbmteviVallJB-snxreRi1XDNr7Wf6Iatf3eM3HQFnHWgd0l_dS5_4Z8j1Wzrt3M2ahC8TiT9JOWNZmYl_mryTS1UML4EGv0zG-SzKZEjMrn1xfOX90yVlSo73U4ZqFlzP5WjLzY3AEySMhY",
+        "email": "qa+2@qasalesloft.com",
+        "password": "YomF@!8mws7EwMWyMukaYjHC",
+        "cookies": "ajs_group_id=CD100030; ajs_user_id=8a77d810-fe7f-4d51-ac61-bd04510cff09; ajs_anonymous_id=0b7309cb-9885-432d-8846-6cf3f63d2a26; _melody_session=4b5e30e8833b23fef9cc8e28c333212d; SSO_SESSION_ID=100031_671dca5340156d7c15503a8daf76da778c5803f5; MELODY-XSRF-TOKEN-us1=xpzrZuX2ENeQ0sX7zq%2BUTcFLTQNSVhJtlsLORb4IvvqWLC8eGjNnp%2BxIQhv%2FrLbQZeqJCznOhSPhIVNAhYQc9Q%3D%3D; __profilin=p%3Dt%2Ca%3Dfaa97eda47daadb4596be248dce33259%7C075a69f9bece097e7e75a6eb7317a73a",
+        "xsrfToken": "xpzrZuX2ENeQ0sX7zq+UTcFLTQNSVhJtlsLORb4IvvqWLC8eGjNnp+xIQhv/rLbQZeqJCznOhSPhIVNAhYQc9Q=="
+  },
+  "sdet2":{
+    "baseUrl": "https://accounts-sdet2.qasalesloft.com/",
+    "apiUri": "https://api-sdet2.qasalesloft.com/v2",
+    "tokenUri":"https://accounts-sdet2.qasalesloft.com/tokens",
+    "melodyTokenUri":"'https://melody.us1-sdet2.qasalesloft.com/api/tokens.json'",
+    "melodyApiUri": "https://melody.us1-sdet2.qasalesloft.com/api",
+    "meEndpoint": "/me.json",
+    "testUser": {
+        "apiToken": "v2_ak_100030_ad3293fdf2b119e9123e3b9ee788c4734631715af0468901dc194cd8ed2a2820",
+        "internalApiToken": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6Im1lbG9keToyIn0.eyJpc3MiOiJtZWxvZHkiLCJzdWIiOiJhZWIzYTAxNi1mMTRlLTQ5ZmYtODE4My0yNTQxMzk4MTM1ZDUiLCJ0aWQiOjEwMDAzMCwicGVybXMiOltdLCJzY29wZXMiOlsiZW1haWxfY29udGVudHMiLCJpbnRlcm5hbCIsImF0dGFjaG1lbnRzOmNyZWF0ZSIsImVtYWlsczpjcmVhdGUiXSwicmVnIjoidXMxIiwiZXhwIjoxNjYwMTY2Mzc4fQ.ISLT68j2sF-viYsfNS_feZywsrwe7Q2XFDTR4XTBQkkPNBffLevnir8nX7VvEvW4DTZ_AVV3QkFYGVZF93IkgxPz5jc3OKODxYAS8TVpVLvTkDVojqkvW97sUVywPy7OgbMi6vDzAqRfHRtGOUpk_s73mk-GHF7yl_dvDc4K4MQu298GmDG1hjrVqR2Fvy7HTZpx7j97SSJEoi-gzs-AMXhLjQxvFvdElZWzcX2Ev3IDMWoaQ_seLsIUbEpyz7Wb22HUlp-QSIxzO4UiqWbzkdlQ8mrdXlFHILHdshY3Ydfr1eqKc9t7aRFBaMp3tqrX0PSiR0gqu44Bbx3enIt0bMzpGdT7FltF_6srZcNSre49a1sS7jvthrP1EhAX1j03_jEsC3P2H892gwuWylzIHHlK7k2Rzgug_WAsSEsD4PKutTryzI3Awl9QlNALFNGqbY2kYVRc7idBhNsKOiREg8YbSX_fRoTlVUZ8_JyHoymwn6rJZnXJaMMWAGvZB17n3b-MR-kIEHpOJJeEb4RM185zChKwcniEHAlIYCEW95I6o0DL7aFruca5Yt9fl82XqSEdEvI6QIxnZftdcmgeFMqOEFbsajoez3u6kkajow2GlWKrYWSBCbyI99yiAQN99W68k73RrIT_EFVF-ZzifMvQJJLhsdgJE7hkmX-ZFZ8",
+        "email": "qa@qasalesloft.com",
+        "password": "ckyNFywrPsGuCT46.zg7XV--",
+        "cookies": "ajs_group_id=CD100030; _melody_session=86b83734eeade5aea723b9d23022a826; ajs_user_id=8a77d810-fe7f-4d51-ac61-bd04510cff09; ajs_anonymous_id=0b7309cb-9885-432d-8846-6cf3f63d2a26; SSO_SESSION_ID=100030_4831e23bf1bef411e6708c91310260a51d2ab03e; MELODY-XSRF-TOKEN-us1=h6kG%2F2rq1WzLmFRr8y4nGS9Ww5GnoGeRGSQe9pKT9rSyW1%2BHF9Elo1UZyxLI78oFLIXRO5ES3gmYOljAsjlbxA%3D%3D; __profilin=p%3Dt%2Ca%3D8c89aa68957a717180dd0921e648f216%7Cc28235fe22e376d46d769e67f3d5932d",
+        "xsrfToken": "h6kG/2rq1WzLmFRr8y4nGS9Ww5GnoGeRGSQe9pKT9rSyW1+HF9Elo1UZyxLI78oFLIXRO5ES3gmYOljAsjlbxA=="
+    }
+  },
+  "sdet2user1": {
+    "apiToken": "v2_ak_100030_430180cbeae80385932139e4b5c0dbb0e2bd48f169d7367bde4a49f8d35e5840",
+        "internalApiToken": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6Im1lbG9keToyIn0.eyJpc3MiOiJtZWxvZHkiLCJzdWIiOiIxMGJkOWYwZi1lY2E5LTQ5NzgtYWM1MC0zNGNhMWEyNWU4NjAiLCJ0aWQiOjEwMDAzMCwicGVybXMiOltdLCJzY29wZXMiOlsiZW1haWxfY29udGVudHMiLCJpbnRlcm5hbCIsImF0dGFjaG1lbnRzOmNyZWF0ZSIsImVtYWlsczpjcmVhdGUiXSwicmVnIjoidXMxIiwiZXhwIjoxNjYwMTY2NTQ0fQ.o3aB5bN9uNnVAmbzSxvzkTJjkVM0YsVIC6WWC6VhMNkXmERFccitq2TdthESiM2reIVLKjINoBkSaB4bQCPEs5eXWEvcUVWWC4FXSPvsI5SS55kFODt19uCwsxnqCcTETtrncgqeEEjgDPpCkBGWz3j5L2oggEhWjVT-qozpFTGMfUC5KmCN3rp5Z0GcZQMpVM4HBpOlRittzvq7L_KKLH1MZXK0_5WuSDstAwvsooiMTd1Q7hUmsaDkoyLN0YnkK4DhzoDLKAvTvpepJaVynBzWMOgk4Jflh3CNSMb3WyKUCSRQFPbxnXWXh0kJkLKTHp_2d_fFPUMnF0XRIMWRO75UpyypflKGj9e_F3epZq-gngSjAdeLd5uCzPTs8MBe09Qwen2GV2TUqVtERfN20Rtqq17wAMH4L82b77zKQgqGLnr-7MDreO3rV9MPVcDLk8kITQDm-_w80VZJKajqwmpxLuyHTf4CpTFiq5fcYQ5N75EL04PDnhb9a02jPs2kACSpIUnVMSBmHTrQNjVrW3CpD2Qa9bXBhsc4e5LH-ceDdw30-sWedQcE6DbBMonymbd7amJigoU7lZeeBVN9h4YaYpeELrxF75LwP9o2wmXZDRerV8dYjk6sDNC4xKQEmmd-_oydFoZGOV82Ks4i8MfUSXLkLZ8vBjHBdeHDTkY",
+        "email": "qa+1@qasalesloft.com",
+        "password": "3*6A2*NNy_y97ZZKndYquXyi",
+        "cookies": "ajs_group_id=CD100030; ajs_user_id=293fb72d-b316-407c-8b7d-2f9d417cb4b1; ajs_anonymous_id=abb96af6-664e-4a52-bec0-e59a4c3bf30d; __profilin=p%3Dt%2Ca%3D5ed081c0d02a700a6632ed8ad75faee7%7C258a65af72b2ee73aee81dbebf3c05c1; _melody_session=b98309fff4e82d631d6b52d555692e76; SSO_SESSION_ID=100030_a0742852d0f4b7ebb4dec4e049bdcdab2792b286; MELODY-XSRF-TOKEN-us1=%2FfJbmcPTm69Lm6UrLta0kidNE1g%2Bb0DtXg1Sv61quSFmVjcEnzA3WCYExT7J%2F4Pg%2Bs47si%2BlnMPP01gpGd28iw%3D%3D",
+        "xsrfToken": "/fJbmcPTm69Lm6UrLta0kidNE1g+b0DtXg1Sv61quSFmVjcEnzA3WCYExT7J/4Pg+s47si+lnMPP01gpGd28iw=="
+      },
+    "sdet2user2": {
+      "apiToken": "v2_ak_100030_8915dce7ee82682e65b45651d37c6952c1bd0db4d9609d06473193f206761583",
+        "internalApiToken": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6Im1lbG9keToyIn0.eyJpc3MiOiJtZWxvZHkiLCJzdWIiOiIyOTNmYjcyZC1iMzE2LTQwN2MtOGI3ZC0yZjlkNDE3Y2I0YjEiLCJ0aWQiOjEwMDAzMCwicGVybXMiOltdLCJzY29wZXMiOlsiZW1haWxfY29udGVudHMiLCJpbnRlcm5hbCIsImF0dGFjaG1lbnRzOmNyZWF0ZSIsImVtYWlsczpjcmVhdGUiXSwicmVnIjoidXMxIiwiZXhwIjoxNjYwMTY2Njc3fQ.jrltXYXUhh8kCr3_LIwXWVjsuZAKDLtEYqqNk2D5eqQZI8GALDQIo-ZEfeaRVlGPF-7S8dYPzlPdWRqXQom4IrYz-dMOmby6-eCvPb0qdvdF83P6ss46tJ2uglo_X1ICnibeI7Fiu7RO-Z5deUb_PUn-1L3tiCHi7kmZSP8fwq8m_O-6u3oDA1hbTrMl9bfPj3Xen1QaoEAupk9KEpcV1CwlGnWk2L5xMc1Gnd7gY3KDmiGVa9xWWgZtNmNaCBZ8a1C5p1MQDq1LmLmKDcOBNdR2xwGEi5qQbG3fxmUJIJXT67oFhG0a8-5WEaII8H0KprVprxQKJ_CLAGHYYOeGwo-6XE-gbMAShNVrVeANz2TufYTgyienYRdCcozkjK6Qi1b9TgYS5NYSV6NPcjue499s9-NXQllVodK-XDUKNp7Nb-cE67OxpjkP-TI-ws6VibCRqjkTVtxudSQwQSTizGTF9Aw0bAwko4XKJwSYjxDN9HUTrQHLnMPysdwCiWf4vkOtDEsinXPtynSJDi8xhLchT-NlV7S0RYv1UpLiWDJifN7eFGG2islKMr9eietV945AG11f4vXGQkzzC2MW7BlquDnthCqls9mIBCq10TR6MId__L4w9_PgELPgANfzwQsVWyEKFtkQCRt0LGKhtddl97-6q_HwuQq1VGpgUSY",
+        "email": "qa+2@qasalesloft.com",
+        "password": "*4P6BDu!GkK8t7*ARqkUpnT*",
+        "cookies": "ajs_group_id=CD100030; ajs_user_id=293fb72d-b316-407c-8b7d-2f9d417cb4b1; ajs_anonymous_id=abb96af6-664e-4a52-bec0-e59a4c3bf30d; _melody_session=5825d36e65f46a8d08eb1520497c98ef; __profilin=p%3Dt%2Ca%3D5ed081c0d02a700a6632ed8ad75faee7%7C258a65af72b2ee73aee81dbebf3c05c1; SSO_SESSION_ID=100030_4479ccd33fe0a076e3a7dc825dd663b35c3b063b; MELODY-XSRF-TOKEN-us1=JXxVJGaY1YENtvSy%2BNBEKVw7dG16rHmFcmBXQlMtBrTiTI7REff2uYexODpTM7fYMFulT13Nr7JscEZNF8Z%2Ffw%3D%3D",
+        "xsrfToken": "JXxVJGaY1YENtvSy+NBEKVw7dG16rHmFcmBXQlMtBrTiTI7REff2uYexODpTM7fYMFulT13Nr7JscEZNF8Z/fw=="
+      }
+    },
+  "qa15":{
+      "baseUrl": "https://accounts15.qasalesloft.com",
+      "apiUri": "https://api15.qasalesloft.com/v2",
+      "tokenUri":"https://accounts15.qasalesloft.com/tokens",
+      "melodyTokenUri":"'https://melody.us1-qa15.qasalesloft.com/api/tokens.json'",
+      "melodyApiUri": "https://melody.us1-qa15.qasalesloft.com/api",
+      "meEndpoint": "/me.json",
+      "testUser": {
+        "apiToken": "v2_ak_100035_ca29b0353908b2f718395cea2387f3624f2424ebecbf52e1f1ad7fa6a6908024",
+        "internalApiToken":"eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6Im1lbG9keToyIn0.eyJpc3MiOiJtZWxvZHkiLCJzdWIiOiI4MDA2ZmMzZi00MTQ1LTRiZDUtOGFiYS04YzQ0MTZlOGUxNzMiLCJ0aWQiOjEwMDAzNSwicGVybXMiOltdLCJzY29wZXMiOlsiZW1haWxfY29udGVudHMiLCJpbnRlcm5hbCIsImF0dGFjaG1lbnRzOmNyZWF0ZSIsImVtYWlsczpjcmVhdGUiXSwicmVnIjoidXMxIiwiZXhwIjoxNjYwMTM3MjQ0fQ.OLjVU9ReK4PV74Nk1qoRofNhnSGls5Aa42d7r_FeGYU-cF_W_18BqOXQdXixRXMpS9ndOfpodry5SlGEdhOhnfzSixbHATFfrP6LpdeMkk9-PkyFM4tTPbjKSbshTfct3anyrV-xJ4vUJK9s4mcPbBpQ_08at98eT2G6_ezVTZjAkp5ri0K3k3VF9IMGG7yvrK0GtLYdJLkBdNc0zymrgQtUEg0dDypxeqMiwdiogK4kH7W7ByJga9S-lAWAZ2LLzUzu9GFAFVQ4LSjh2Vi_MVhGLDg8xi9yQepn8qKrZkLO0vSTTf3asTcdfBQV3gWrGDrfVMXzxndvEg5rOTi8vkeTcp5ettoI9QKlhbSSSgU8NPe-2pGWVqKY3itd5_r107VZlrEh71Tm8-Yaog5mc9aOgiVq0v-K9Qb6CVU2I5Hje7bx3ujlyg4SJZhI75SifizTaXKq7-U6wh3q8MXRMcKyrscWVRDdW11qyS6_zeVCisHbgr-820KnEZ-Gcwc2914MRhWhOGVy9Pm0AFCq1TqknnPtcsJz1s_0Labk868EPcTOCkPqu7iS09jkdfNG62dmvn2Aj4daYn2urv3gg071I64_18Y7FZVKoMYLUPkYwkmrjORPwyL0T2qkrR4pcia6OtBhPfnLiF8g5JPZjQHettI52Vlc_GmS83j6CgI",
+        "email": "qa@qasalesloft.com",
+        "password": "GiFBVAHQQcehNbx9bdgCL@k_",
+        "cookies": "fs_uid=rs.fullstory.com#salesloft.com#6399761625636864:5493392584204288#0906e1c7#/1683621482; SSO_SESSION_ID=100035_fb633aa912d9aa4e476dea48a024d8a1c5f9147a; _melody_session=9d0f0166a22b73be963d57181710b252; ajs_user_id=8006fc3f-4145-4bd5-8aba-8c4416e8e173; ajs_group_id=CD100035; ajs_anonymous_id=9052c113-7743-4f8a-a165-f6280927a905; MELODY-XSRF-TOKEN-us1=V5zW3xWnSTmhmaXr7fBP2z8z4gYBjOwLQVO%2FzlnESautxjGBkivhixvSQk9TdEuSAsk5OMTMwmsaUb63z%2FuNmQ%3D%3D; __profilin=p%3Dt%2Ca%3Dae5b66b0ee2a7e513a3a4bc83625af8a%7C767d654e88366593e112f8d9c872fa15",
+        "xsrfToken": "Y0HuwBKFr67RI77oVw0kx68iH+BLxAs/Ki0V/a6ECimZGwmelQkHHGtoWUzpiSCOktjE3o6EJV9xLxSEOLvOGw=="
+      },
+      "testUser2": {
+        "apiToken": "v2_ak_100035_94ed13965b355312bab6c9cf818b997867e0fc54cbfbcb2898bf4fc5f86ae810",
+        "internalApiToken":"eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6Im1lbG9keToyIn0.eyJpc3MiOiJtZWxvZHkiLCJzdWIiOiIwN2ZmNGZjMS04NmVjLTRlNmUtOGI3MS04MTAzMTQ2NTRkYjciLCJ0aWQiOjEwMDAzNSwicGVybXMiOltdLCJzY29wZXMiOlsiZW1haWxfY29udGVudHMiLCJpbnRlcm5hbCIsImF0dGFjaG1lbnRzOmNyZWF0ZSIsImVtYWlsczpjcmVhdGUiXSwicmVnIjoidXMxIiwiZXhwIjoxNjYwMTQ2MjA4fQ.Fp5uyNl4Sy22ymZ0gQIWKNqthxU6EkdhOnILIzdGcAGj3e6mnnBXqfFaHUSApGtKjPdYzHwiyzInkkAyDWjYs1lHI5evIxmjAvxihREREY1c-I7aDvSolhwdaYr6BSV_eIQT5M_9PB4-jHGus9LnyQsMYGkU6aFaC0PPDfXovEpvEE1CuL-yawGaIg1CWXdc1rvNYcB5mq8sMC59YUM6FIpGI-Haz-xgmXd_sL11ZH0CTQIAd4-AkPqMOUPXmNjFhO8_AO8Ba54BGnkEjTDeWTrDEjQgNxPhLC6yUKLe3Q2KvXUn2YCntjnDtoZNw68c8KEKai1YzCuKUMCRzTEEu-97SD5MYZYIK9PCxcVI_k6SUUKvlm-zHMAlRUVy_JQbpYIa4YZqGQCRDV5Nbm5-XRPqtV_fBN3GTIH1rKun7NOKeHhOSSQN8gF9jDIHBdJ-YXaLXLxsbKB8sWu9ui3usKVGFtcURwjLrk8YHPlwv00Ox6Q7uT7atbUKko08QdtaabE0DFCNSc09B4DTaFANEFmLmdjQ6215tdxKpMqncpmvSQq5b4kbLWdpjTXz_eySBRAjfZCUAZ7eu1UapszkXH_S69FNCQNmRvndTQiHRXgYK9MWyn5IPkK6KB3TE57bdfCq9S9UAndJwHddiPiLOZQYWK3If2hxk5cdJxgyI_4",
+        "email": "qa+1@qasalesloft.com",
+        "password": "2-VwFCye*atELgt-tkLUZnhk",
+        "cookies": "fs_uid=#salesloft.com#6568382354362368:6448951435399168:::#fb8c54e1#/1691001792; SSO_SESSION_ID=100035_e261166b31e82a32c47507df25a825ff6a45e91d; _melody_session=fb7dd431350eadbb3428e4fc0eae4cf7; ajs_user_id=07ff4fc1-86ec-4e6e-8b71-810314654db7; ajs_group_id=CD100035; ajs_anonymous_id=1df050cb-5d08-46fb-80d2-be3e51efef26; MELODY-XSRF-TOKEN-us1=SAhV6OAyFrcu%2BxvDXnyx79V3Qb0hFZWPFjrp3UlU180jO%2FAQQN07Ze38dElumRWesNyh%2Fsmul9lv%2FWVNiMbTdw%3D%3D; __profilin=p%3Dt%2Ca%3Ddc9b5ff708f42d0ce903c86e245b94ab",
+        "xsrfToken": "SAhV6OAyFrcu+xvDXnyx79V3Qb0hFZWPFjrp3UlU180jO/AQQN07Ze38dElumRWesNyh/smul9lv/WVNiMbTdw=="
+      },
+      "testUser3": {
+        "apiToken": "v2_ak_100035_ca29b0353908b2f718395cea2387f3624f2424ebecbf52e1f1ad7fa6a6908024",
+        "internalApiToken":"eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6Im1lbG9keToyIn0.eyJpc3MiOiJtZWxvZHkiLCJzdWIiOiJjYTE4NTNiOS03YzM0LTQ1MGUtODg5Yi04NTZlMzRjNzc1OWMiLCJ0aWQiOjEwMDAzNSwicGVybXMiOltdLCJzY29wZXMiOlsiZW1haWxfY29udGVudHMiLCJpbnRlcm5hbCIsImF0dGFjaG1lbnRzOmNyZWF0ZSIsImVtYWlsczpjcmVhdGUiXSwicmVnIjoidXMxIiwiZXhwIjoxNjYwMTQ2NDI2fQ.Rf1WiOonOALqtTt5NDmGVM439gYlVKrwlTAMN2nEzntoUODDdxcAjz2J0FTi_Vf7409-h1G-Mj9GNnprXNPoSbbkFl4vXdsRot9Z-TWfD8p4QD1OydYBXAeEGX2PkRQ_F86RcOR9jJLosTyhrCxtBV8W_tbDB_7QkVtdgvcBBXmyvxxrljQQd200NfPygpxCO_sSOlTxwtLgftpV0d8wZmHQiUdd6h_d1ntjm-17oHVVBejQqBsd2US9GbwpOrNTfWxBXMcn9958T7bua_x6q101fV7IXqJuUj6zadyIcXYIiX4MqYYc_-IzHR2knsRFPIFqxnA6uR1UgqnBe5_xWw9Cd5RxqlTFTaRoBgfiJvnhPNxTF-OPK0R0DNjijI_GZZkTWa_pkNkYiHQVJ74Jef6CBD57eZNK6Z2KuLCldiTjHVANOI5LJy0RFebzNpzVlbQRnjsUXhSf-HjzvEBnrmioc9SkNehk4tfXxhLqw-e0orLyEjUuni4p9Bo1zbS_huMKK44A1faAIcTgptjgp5B42vC9rJxzUa7p9KxWlfrt-DkV_nCvoXljDvNbsOAho7FvVmD4WmNJh1beTjin7B4mXHLchcGSRwYmNcC2BKARPc8dqJizENj4Kewwsim0wDDLsnzDHk5tf9FsFXQMfrG2V5LGWuGK1aMiK4nc2-M",
+        "email": "qa+2@qasalesloft.com",
+        "password": "mfvL9fKdNfhy9om*FFrmvgCs",
+        "cookies": "fs_uid=#salesloft.com#6568382354362368:6448951435399168:::#fb8c54e1#/1691001792; _melody_session=fb7dd431350eadbb3428e4fc0eae4cf7; ajs_user_id=07ff4fc1-86ec-4e6e-8b71-810314654db7; ajs_group_id=CD100035; ajs_anonymous_id=1df050cb-5d08-46fb-80d2-be3e51efef26; __profilin=p%3Dt%2Ca%3Ddc9b5ff708f42d0ce903c86e245b94ab; SSO_SESSION_ID=100035_0dd5036af44ba6df7eb3efb77e0d0617cfca6613; MELODY-XSRF-TOKEN-us1=E3dP%2BdNpmoEoWD7mvpuS5EM9WFcGF7YYepnoIZtx7sx4ROoBc4a3U%2BtfUWyOfjaVJpa4FO6stE4DXmSxWuPqdg%3D%3D",
+        "xsrfToken": "E3dP+dNpmoEoWD7mvpuS5EM9WFcGF7YYepnoIZtx7sx4ROoBc4a3U+tfUWyOfjaVJpa4FO6stE4DXmSxWuPqdg=="
+      }
+  },
+
+  "qa16":{
+      "baseUrl": "https://accounts16.qasalesloft.com",
+      "apiUri": "https://api16.qasalesloft.com/v2",
+      "tokenUri":"https://accounts16.qasalesloft.com/tokens",
+      "melodyTokenUri":"'https://melody.us1-qa16.qasalesloft.com/api/tokens.json'",
+      "melodyApiUri": "https://melody.us1-qa16.qasalesloft.com/api",
+      "meEndpoint": "/me.json",
+      "testUser": {
+        "apiToken": "v2_ak_100035_cd23cbf05430a5e78889c2dbe972d7033dbd37d3752f8c98ce7ea25e41433f4e",
+        "internalApiToken":"eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6Im1lbG9keToyIn0.eyJpc3MiOiJtZWxvZHkiLCJzdWIiOiI4MDE2YzEyOS02MDc4LTQ4ZjEtOWU4OC05YTk3ZTM2MDBhNDgiLCJ0aWQiOjEwMDAzNSwicGVybXMiOltdLCJzY29wZXMiOlsiZW1haWxfY29udGVudHMiLCJpbnRlcm5hbCIsImF0dGFjaG1lbnRzOmNyZWF0ZSIsImVtYWlsczpjcmVhdGUiXSwicmVnIjoidXMxIiwiZXhwIjoxNjYwMTU4NDE2fQ.j0BlMZ96AO6hli3f3I3iAZL083ZvYvkdIZZ2f30sVULGiTxFNQIy6tExGq2MYAOJF6SO_AKszpzPohGTVisVPfJnObscT99WYX2TOvHSIVTLZLUNPaxaUJgb7ddy3ljCfm_tVgoLaD_EhvpTJxJoOBVfabb_4F_ah91n1YW0qLyy15dsNNRol7lErTI0FIN5DOtR0korbxqehhAXtxwqAQMfqtKb1X_PG1KiIFbITbFtpJSxCvnCvKLZrUzyXOHaf3a3y7VOXhn_y8IB6QTYfpEYS-t4HMnMuGy2AdPMoK4Touv8FwSbSkOZo2ljB4NHkPAKqKgcsyHrEVJAElawTkFUMQywdPyZ94ClZvc9Iscaa83OvYBJmgyYfzbMyrEeLwci6ZyGslM_vvtAAcrgyTGhqZA_aXUyQ4FTuQbou6u_WxHFRkUblLlI29utjroYQPJfAGSgVn9713FCUi5wIlaa0JVezOvxBNJX_8BOy2eWWu0l5fVjI1pzlsjuU9rpzFFUOZjsMzzXQ5koDrKMFAOari3dHIgKOUDufSJeG85-u0hu-9O2zPyTW72ILl9C9HseebAl51RtDVkEbA3u6Vg6SBjlEXmiqpn-C2Z0w-f90wec9n-x99Gcv2E1-ToK2EJ2OqXlqkPcAkLPLScQvtejKrnxfv7oplqSZYEwMJg",
+        "email": "qa@qasalesloft.com",
+        "password": "vhpwC*b4ePJyQ3jjx23iGsKW",
+        "cookies": "fs_uid=#salesloft.com#6568382354362368:6448951435399168:::#fb8c54e1#/1691001792; ajs_group_id=CD100035; SSO_SESSION_ID=100035_7cd9fa957e7ac5c0767b951e9e54b0f634b0eaad; _gandalf_session=9a205338745a087d1db6d72c59deae30; remember_user_token=eyJfcmFpbHMiOnsibWVzc2FnZSI6Ilcxc3lOMTBzSWlReVlTUXhNQ1JRYkRock56TlBRMVowYzJvMlQxUklPWFJrUmtsbElpd2lNVFkyTURFMU56Z3dNeTQwTWpNNE1EZzJJbDA9IiwiZXhwIjoiMjAyMi0wOC0xN1QxODo1Njo0My40MjNaIiwicHVyIjpudWxsfX0%3D--6be05c4d577505702e79608e04bebf4e3e79e2e2; ajs_user_id=8016c129-6078-48f1-9e88-9a97e3600a48; ajs_anonymous_id=ee184a73-e608-47c3-acc6-2cb8f4b8f90e; MELODY-XSRF-TOKEN-us1=wplOaemdFAZvRbZfCNfKz6dLU4vjmyfZgwNDx4iszPldNpFEbZSZWhT5qg7rg3S2FmgarnJ39oZXlzNZuuj3fA%3D%3D",
+        "xsrfToken": "C2vcIP/vFPNx9wU+vhKRlV3wMoxeuMW+6ABFF9R4fCeUxAMNe+aZrwpLGW9dRi/s7NN7qc9UFOE8lDWJ5jxHog=="
+      },
+      "testUser2": {
+        "apiToken": "v2_ak_100035_c5708f6959b8e6e491308da558599216de18735a19b9f7dd08076ad53c6f08f2",
+        "internalApiToken":"eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6Im1lbG9keToyIn0.eyJpc3MiOiJtZWxvZHkiLCJzdWIiOiIyOGUyOTdiMC01ZjY2LTQ0ZmYtYjkzZS02YzA4OGEyNzg4MWEiLCJ0aWQiOjEwMDAzNSwicGVybXMiOltdLCJzY29wZXMiOlsiZW1haWxfY29udGVudHMiLCJpbnRlcm5hbCIsImF0dGFjaG1lbnRzOmNyZWF0ZSIsImVtYWlsczpjcmVhdGUiXSwicmVnIjoidXMxIiwiZXhwIjoxNjYwMTU4Njc2fQ.f932zdGAxHJ-OMjdNeknLMcFSB45yJKCwM1UhLPIB3CXQDkGi4_6BN16WoiAQPOMJt_yQPERQ2Xc6ojlkbg2_7ZYEKAEmyn7yR4SF-YKXNuunGIPKrZoBnhqZimywIqtILvNScg2XwFhG45C6w6VECepHUpkPu5ln_0TazkpHep4UprsB0M5ZvoWtbMURIESKYvnNL9wnrpAtuyoIkLtBkhI6DdOBuzbH-oE9GpUCPjcvZgWn8bzSLOCWHAICFtPpLfFtM4AYurEWvOtdlJaycQouI7SImo4tepJ_0c7LIUw4lshSE6IKIARJRy3eJfs6qyzZDc9Jo2Kfma4VScgsenRideinj5hz-aFuvMZ0V5DCzEx69SAmYnFhgNgbaJKJqww6Ox5Qr2RV11zwF99pqukKJIv6TDXY7m92LpLoQgFDcYu5fhtYwDpCHx1_yD50DV8m_c3uoY70TC-4pm8NYHNIg3VDWHZYK5vYTj_ttiaVEqrrIZfCRzUwr2pEgdNVnEYGWuszU6ZeesauUNw2LmCvrbBN0YxBd7y0ILlUjrLwiOE5SUzfAzRsifS34keG9KGEb981EIxMWhIQyab_oN-vvWBpBQX9XdoUL0Zo0T9VflobYS7rV7y9AJXnmAH2GFMaBGugGCYoqwzOzZ05pdVfj-LmeQu6K5XB3PjFmY",
+        "email": "qa+1@qasalesloft.com",
+        "password": "Bv_4@cDzuiiCWjkfc@6CcZun",
+        "cookies": "fs_uid=#salesloft.com#6568382354362368:6448951435399168:::#fb8c54e1#/1691001792; ajs_group_id=CD100035; _melody_session=2b7fb99f06b0182241d7590e5ef6c7ba; ajs_user_id=8016c129-6078-48f1-9e88-9a97e3600a48; ajs_anonymous_id=ee184a73-e608-47c3-acc6-2cb8f4b8f90e; __profilin=p%3Dt%2Ca%3Db1f56dce502d2186b62a12bfde6efc50%7C423c8680fd83eae08c774139112d9a68; SSO_SESSION_ID=100035_e50d6906787232241b5d5eb40f5207e23ad0fe8a; MELODY-XSRF-TOKEN-us1=rLIXA1vaW1WTvTgc33%2FP2vpMND%2Bil4nxMDpurNVyFdszHcgu39PWCegBJE08K3GjS299GjN7WK7krh4y5zYuXg%3D%3D",
+        "xsrfToken": "rLIXA1vaW1WTvTgc33/P2vpMND+il4nxMDpurNVyFdszHcgu39PWCegBJE08K3GjS299GjN7WK7krh4y5zYuXg=="
+      },
+      "testUser3": {
+        "apiToken": "v2_ak_100035_8f7bbcc428c67aad2470d67f8884b9b7c1a648bb4100f6701e7b36e6a4f62888",
+        "internalApiToken":"eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImtpZCI6Im1lbG9keToyIn0.eyJpc3MiOiJtZWxvZHkiLCJzdWIiOiJiMDg2NjRjNC1hZTQ0LTQ0ZTMtOTk5My03N2I1ZGE4ZDk1NGEiLCJ0aWQiOjEwMDAzNSwicGVybXMiOltdLCJzY29wZXMiOlsiZW1haWxfY29udGVudHMiLCJpbnRlcm5hbCIsImF0dGFjaG1lbnRzOmNyZWF0ZSIsImVtYWlsczpjcmVhdGUiXSwicmVnIjoidXMxIiwiZXhwIjoxNjYwMTU4OTE0fQ.TU-NQDNcqRnGmf-KyR-mrnyDDGo5vnefNOJrewF44acv6jpqqaEC97imUDdhk4wmvBUxLfvPNQJtzw5Hs53MikbnWjM-Ss8qu9s8VJR-w7jsW55KxvWeXoTh2_SwuX66Xln5DkebOZQ-fE3fZ55n5Wk-3PhQ-ggSIc8kzFth42aQtnixm3yRX4-emNr6wotrOLx2lxkYnk03jyt5-A-09M9hCbosr5D0_-hfio_qLTzjLlHiQGWOHBN-hCKswjDqQlrPFfekpsdMfQUywUK0hYAT2VgEpPmWF4VVBYI-8NCKN7eEXuY6PVPt5SnDNtYZWDmMidqRTJcp4aumy07bnapWQU3AeALaMw8Zk_7ef_lvgVa58u3qlEL-MwUXO1sy58H00m-Tnqv5M5kYaATteWibZZ5XjaVD-pX5GdnrMRT2BIaxEDxtuLyU5AxN15kQ_FitsJXBZQOE70-QgS2ciKQ5Y1g7TmCzKymsOiCtkNNZxdadSyN6_-i9Ngbmc8_LNHkFqJ0M-WHrSoWffMrp_dFjpBNgva7nMKLZ9zyqiu3YSvfXJZd1rgc4BpRz1jTi4_ma1SxAwL9gs1O-IbPateefeA5hcgwAfh59fh2zWvncm2-VpNjYWRwdIZ9o0Yke3fuKRGn7oDgZ-C3OYyQN9oIb4aJAPSPUOldTX2i_KIA",
+        "email": "qa+2@qasalesloft.com",
+        "password": "GgyQ4NdwX2f44mUsAec7.-WF",
+        "cookies":"fs_uid=#salesloft.com#6568382354362368:6448951435399168:::#fb8c54e1#/1691001792; ajs_group_id=CD100035; _melody_session=2b7fb99f06b0182241d7590e5ef6c7ba; ajs_user_id=28e297b0-5f66-44ff-b93e-6c088a27881a; ajs_anonymous_id=364ec7e8-feff-45bc-9b38-14f8aca60173; SSO_SESSION_ID=100035_6c5d3f9b3a190e88e62e9df268edc9e2895e938e; MELODY-XSRF-TOKEN-us1=efRpLTH28yAFDu58WWLz%2B4aROeol01K6YzEkyDBqEd7mW7YAtf9%2BfH6y8i26Nk2CN7Jwz7Q%2Fg%2BW3pVRWAi4qWw%3D%3D; __profilin=p%3Dt%2Ca%3Dbcaccfd8a172783d68943ab6fe8f8dd9%7Cb1f56dce502d2186b62a12bfde6efc50",
+        "xsrfToken": "efRpLTH28yAFDu58WWLz+4aROeol01K6YzEkyDBqEd7mW7YAtf9+fH6y8i26Nk2CN7Jwz7Q/g+W3pVRWAi4qWw=="
+      }
+    }
+  }
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+utility.js
+export class Utility{
+    setEnviromentVariables(){
+        if (Cypress.env('ENV') === null) {
+            Cypress.env('ENV') = 'QA8';
+        }
+        let enviro = Cypress.env(`env.${Cypress.env('ENV')}`);
+        let testUser =  Cypress.env(`env.${Cypress.env('ENV')}.testUser`)
+        Cypress.env('apiUri') = enviro.apiUri;
+        Cypress.env('baseUrl') = enviro.baseUrl;
+    }
+}
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+e2e.js
+// ***********************************************************
+// This example support/index.js is processed and
+// loaded automatically before your test files.
+//
+// This is a great place to put global configuration and
+// behavior that modifies Cypress.
+//
+// You can change the location of this file or turn off
+// automatically serving support files with the
+// 'supportFile' configuration option.
+//
+// You can read more here:
+// https://on.cypress.io/configuration
+// ***********************************************************
+
+// Run tests by groups
+beforeEach(function() {
+    let testSuite = Cypress.env('SUITE');
+    if (!testSuite) {
+        return;
+    }
+
+    const testName = Cypress.mocha.getRunner().test.fullTitle();
+    testSuite = "<"+testSuite+">"
+    if (!testName.includes(testSuite)) {
+        this.skip();
+    }
+})
+
+// handle uncaught exceptions
+Cypress.on('uncaught:exception', (err, runnable) => {
+    // returning false here prevents Cypress from
+    // failing the test
+    return false
+  })
+
+// Import commands.js using ES2015 syntax:
+import './commands'
+
+// Import cy-api
+import '@bahmutov/cy-api'
+
+// Import Cadence API Commands
+import './cadences/cadenceApiCommands'
+
+// Import Account API Commands
+import './accounts/accountApiCommands'
+
+// Import Template API Commands
+import './templates/templateApiCommands'
+
+// Import Template API Commands
+import './people/peopleApiCommands'
+
+// Import skip-test
+import '@cypress/skip-test/support'
+
+// Import mochawesome reporter
+import 'cypress-mochawesome-reporter/register'
+
+// cypress-xpath
+require('cypress-xpath')
+
+// Alternatively you can use CommonJS syntax:
+// require('./commands')
+
+------------------------------------------------------------------------------------------------------------------------------------------------------
+commands.js
+import {LoginPage} from "../pages/loginPage";
+
+const login = new LoginPage()
+
+
+Cypress.Commands.add('login', (userEmail, userPassword) => {
+    login.login(userEmail, userPassword)
+
+    // get internal API bearer token
+    cy.api({
+        method: 'POST',
+        url: Cypress.env(Cypress.env('loc')).tokenUri
+        }).then((resp) => {
+            let jwtToken = resp.body.token
+
+            cy.api({
+                method: 'POST',
+                url:Cypress.env(Cypress.env('loc')).melodyTokenUri,
+                'auth': {'bearer': jwtToken}
+            }).then((resp) => {
+                Cypress.env(Cypress.env('loc')).testUser.internalApiToken = resp.body.token
+            })
+        })
+})
+
+Cypress.Commands.add('switchToIframe', (iframe) => {
+    return cy
+    .get(iframe)
+    .its('0.contentDocument.body')
+    .should('be.visible')
+    .then(cy.wrap);
+})
